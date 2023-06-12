@@ -1,0 +1,404 @@
+---
+title: "Analyse, segmentation et classification des clients."
+author: "Aziz Sghaier"
+date: "2023-06-12"
+output: html_document
+---
+
+---
+title: "Analyse, segmentation et classification des consommateurs"
+author: "Aziz Sghaier, Iheb Brigui, Chokri Jouini, Yassmine Taaboury"
+date: "2023-05-05"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Chargement des packages.
+
+Voici tous les packages qu'on va utiliser.
+
+```{r,echo="TRUE",results='hide'}
+library(readxl) 
+library(factoextra)
+library(FactoMineR)
+library(vcd) 
+library(ggplot2) 
+library(reshape2) 
+library(klaR) 
+library(rpart) 
+library(rpart.plot) 
+library(MLmetrics)
+library(dplyr)
+library(stats)
+library(nnet)
+library(e1071)
+library(randomForest)
+library(pROC)
+```
+
+## Chargement et préparation des données
+
+Chargement des fichiers excel et création d'un dataframe. La première colonne contient les identifiant de chaque client qui a remplit les formulaires, elle ne sera pas prise en compte dans notre analyse donc on la retire.
+
+```{r}
+A <- read_excel("Questions 1-7.xlsx")
+B <- read_excel("Questions 8-14.xlsx")
+C <- read_excel("Questions 15-20.xlsx")
+data = cbind.data.frame(A[,-1],B[,-1],C[,-1])
+head(data)
+```
+
+Convertion en type factor pour les variables catégorielles
+
+```{r}
+for (col in names(data)) {
+  data[[col]] <- as.factor(data[[col]])
+}
+str(data)
+```
+
+## Exploration et description des données
+
+Vérification des valeurs nuls.
+
+```{r}
+Nu<-sum(is.na(data))
+Nu
+```
+
+Résumé statistique
+
+```{r}
+dim(data)
+colnames(data)
+summary(data)
+```
+
+Distribution des variables.
+
+```{r}
+for (variable in colnames(data)) {
+  pie(table(data[[variable]]), main = variable,)
+}
+```
+
+-   Catégorie d'âge : Notre population est répartie de manière équitable entre les quatre tranches d'âge.
+
+-   Sexe : L'échantillon sélectionné est homogène en termes de répartition entre les femmes et les hommes.
+
+-   Niveau de scolarité : Notre population est majoritairement éduquée, avec une majorité de diplômés de l'enseignement supérieur ou équivalent.
+
+-   Profession : Nous observons une variété d'échantillon avec plus de huit professions, et les étudiants représentent une part plus importante que les autres professions.
+
+-   Origine : La majorité de notre population réside dans la région du Grand Tunis.
+
+-   Situation familiale : La moitié de notre population est célibataire, tandis que l'autre moitié est répartie entre les mariés et les divorcés.
+
+-   Nombre d'enfants : La moitié de notre population n'a pas d'enfants, tandis que l'autre moitié est répartie de manière presque égale entre cinq autres catégories.
+
+-   Importance du produit : Un quart de notre population n'a pas de préférence spécifique en termes de choix de produit, tandis que les trois quarts restants sont répartis de manière égale entre l'image de marque, la qualité et le prix.
+
+-   Préférence du produit : Nous constatons que la moitié de notre échantillon préfère les produits importés, tandis que l'autre moitié préfère les produits tunisiens.
+
+-   Catégorie préférée : Les produits bio représentent la catégorie la moins significative par rapport aux sept autres catégories de produits, qui ont des parts d'importance égales.
+
+-   Liste de courses : Plus de 50% de notre échantillon n'utilise pas de liste pour faire ses courses.
+
+-   Fréquence des courses : Aucune différence significative n'est observée entre les fréquences, car chaque fréquence représente 16%.
+
+-   Budget d'achat : Dans notre population, le budget d'achat le plus fréquent se situe entre 30 et 39 TND.
+
+-   Lieu d'achat : Les achats en ligne sont presque négligeables, contrairement aux achats dans les grandes surfaces, les marchés à proximité ou les magasins du quartier.
+
+-   Consommation bio : Moins de 40% de notre échantillon représente notre public cible de consommateurs de produits bio.
+
+-   Type de produit bio consommé : Plus de 50% de la population ne consomme pas de produits bio, tandis que les 50% restants de consommateurs sont répartis entre les produits d'hygiène bio, les fruits et légumes bio, les produits laitiers bio, et de manière moins importante, les produits d'entretien ménager bio.
+
+-   Fréquence de consommation des produits bio : Plus de 60% n'ont pas de fréquence de consommation car ils ne consomment pas de produits bio, tandis que le reste est réparti de manière égale entre les trois fréquences de consommation.
+
+-   Préférence bio : La majorité de notre échantillon n'est pas encline à consommer des produits bio, même s'ils coûtent seulement 10 TND de plus que les produits non biologiques.
+
+-   Correspondance : Les produits bio sont considérés comme chers par la majorité de notre population.
+
+-   Produit spécifique : Plus de la moitié de nos consommateurs de produits bio recherchent un produit spécifique qu'ils ne parviennent pas à trouver en Tunisie.
+
+Création d'une matrice de correlation pour notre jeu de données avec "Cramer's V statistic" qui est un indicateur de correlation qui se base sur le test de chi2 vu que notre jeu de données est purement catégorique. Cet indicateur est commpris entre 0 et 1. Une valeur proche de 1 indique un fort lien entre deux variable et une valeur proche de 0 infique un faible lien entre deux variable. Le point faible de cet indicateur c'est qu'il ne nous informe pas de la direction de la correlation (correlation positive ou négative) comme l'indicateur de correlation de Pearson par exemple.
+
+```{r}
+corr_matrix <- matrix(NA, nrow = ncol(data), ncol = ncol(data))
+for (i in 1:ncol(data)) {
+  for (j in 1:ncol(data)) {
+    if (i == j) {
+      corr_matrix[i, j] <- 1
+    } else {
+      corr_matrix[i, j] <- assocstats(table(data[, i], data[, j]))$cramer
+    }
+  }
+}
+rownames(corr_matrix) <- colnames(data)
+colnames(corr_matrix) <- colnames(data)
+head(corr_matrix)
+```
+
+Visuel de correlation (heatmap).
+
+```{r}
+melted_corr <- melt(corr_matrix)
+ggplot(melted_corr, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(x = "", y = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Il y'a une forte correlation entre les variables consommation_bio, type_produit_bio, freq_consommation_bio. C'est à cause des non consommateurs des produits bio qui sont présents plus que les consommateurs des produits. Il y'a aussi une forte correlation entre la variable produit_specifique et pref_bio. Pour les autres variables, il n'ya pas de correlation remarquable sauf une correlation moyenne entre les variables categorie_age et profession, sit_fam et nbr_enfants. C'est à car généralement les personnes les plus agées ont tendance à être marié/divorcé, à avoir un nombre d'enfant supérieur à 0, et à avoir une profession (pas étudiant).
+
+## Analyse en composantes multiples
+
+```{r}
+res.acm <- MCA(data)
+```
+
+```{r}
+library(factoextra)
+fviz_screeplot(res.acm)
+```
+
+Selon le critère de chute de coude, on retient les 3 premières dimensions. Mais vu la taille du jeu de données, le taux de restitution d'information va être faible avec 3 dimensions seulement.
+
+Graphique de variables.
+
+```{r}
+fviz_mca_var(res.acm)
+```
+
+Selon ce graphique, on peut constater que Dim1 oppose les jeunes (qui sont géneralement étudiant, célibataire, préférent les biscuits chocolats et produits cosmétiques) contre les plus agés.
+
+On va s'interesser au graphique des individu pour voir si on peut déduire un nombre de segments clients.
+
+```{r}
+fviz_mca_ind(res.acm)
+```
+
+On peut déduire selon ce graphique la présence d'au moins 4 groupes d'individus distincts ce qui va nous aider à faire notre clustering dans la partie qui suit.
+
+## Apprentissage non supervié: Clustering avec kmodes
+
+Kmodes est un algorithme qui divise les données avec un nombre de cluster k qu'on doit prédifinir, 4 pour notre cas. Au premier lieu, l'algorithme va prendre k lignes au hasard de notre dataset et les considéres comme étant des clusters de départ, puis il va calculer le nombre de différence entre les modalité de réference choisis premiérement, et le reste de la dataset. Ensuite il va ajouter les lignes au clusters qui ont la différence différents, calculer les modes des clusters et refaire tout le processus de nouveau jusq'à atteindre un clustering optimal.
+
+```{r}
+set.seed(0) 
+x=kmodes(data,4) 
+data2=cbind.data.frame(data,x$cluster)
+names(data2)[21]="Segment"
+head(data2)
+```
+
+Après avoir effectuer le clustering, on a ajouté une colonne nommmé cluster qui indique le cluster de chaque individu dans un nouveau dataframe nommée "data2".
+
+```{r}
+x$size  
+head(x$modes) 
+```
+
+Nous avons un total de 736 profils de consommateurs qui ont été regroupés en 4 grandes catégories. A partir des similarités des profils des consommateurs, nous avons pu définir les caractéristiques spécifiques de chaque catégorie de client potentiel. Voici une explication détaillé des profils détectés suite à notre analyse :
+
+1.  La première catégorie représente 31% de nos consommateurs, ce qui équivaut à 227 personnes sur un total de 736. Le profil démographique de ces consommateurs correspond à une tranche d'age entre 26 et 35 ans, de sexe féminin et ont un niveau d'éducation supérieur. Ils sont au chômage, résident dans la région du Grand Tunis, sont mariées et ont plus de 4 enfants. En ce qui concerne leurs préférences en matière de produits, ils privilégient la qualité et accordent une importance à l'origine tunisienne du produit. Leurs achats se concentrent principalement sur les fruits et légumes, et ils utilisent une liste préétablie lors de leurs courses. En moyenne, ils font leurs achats deux fois par mois et disposent d'un budget compris entre 30 et 39 TND. Généralement, ils se rendent dans les grandes surfaces pour effectuer leurs achats. Ils ne consomment pas de produits biologiques, même si ces derniers ne coûtent que 10 TND de plus, car ils considèrent que les produits biologiques sont chers. Ils n'ont pas de produit spécifique recherché en particulier.\
+2.  La deuxième catégorie représente une part de 40,5% de notre échantillon. Ce groupe est principalement composé d'hommes âgés de 18 à 25 ans, diplômés de l'enseignement supérieur et résidant dans la région du Grand Tunis. Leur situation matrimoniale est célibataire et ils n'ont pas d'enfants. Lorsqu'ils choisissent un produit, ils accordent une plus grande importance au prix et ils préfèrent les produits importés plutôt qu'aux produits tunisiens. Leurs achats se concentrent principalement sur des produits alimentaires de base et ils ne suivent pas de liste préétablie lors de leurs courses, préférant acheter au fur et à mesure. En moyenne, ils effectuent leurs courses une fois par mois dans des magasins ou des supérettes de leur quartier, avec un budget compris entre 30 et 30 TND. Quant aux produits biologiques, ils ne les consomment pas, même si la différence de prix entre un produit bio et un produit chimique n'est que de 10 TND, car ils les considèrent comme étant trop chers.\
+3.  La troisième catégorie constitue une minorité, représentant 17,7% de notre échantillon. Ce groupe est principalement composé d'hommes âgés de plus de 50 ans, ayant obtenu un diplôme d'études secondaires ou équivalent. Ils travaillent dans une entreprise et résident dans la région du Grand Tunis. Sur le plan matrimonial, ils sont mariés et ont un enfant. Lors de leurs achats, ils n'ont pas de critères de choix spécifiques, mais ils préfèrent les produits importés plutôt que les produits tunisiens. Leurs achats sont variés et ils ne suivent pas de liste préétablie lors de leurs courses, préférant acheter en fonction de leurs besoins quotidiens. Ils effectuent leurs achats environ une fois par mois, dans des magasins ou des supérettes de leur quartier, et allouent un budget compris entre 30 et 39 TND. Cette catégorie consomme des produits biologiques au moins une fois par semaine, en particulier des produits laitiers, car ils considèrent qu'ils sont de qualité et sont prêts à les acheter même s'ils sont plus chers de 10 TND par rapport aux produits non biologiques. Malheureusement, certains des produits biologiques qu'ils recherchent ne sont pas disponibles en Tunisie.\
+4.  Cette dernière catégories regroupe un public féminin entre 18 et 25ans, diplômé d'études supérieures et qui sont encore étudiantes. Elles résident dans la région du Grand Tunis, sont célibataires et n'ont pas d'enfants. Lorsqu'elles font leurs choix de produits, elles accordent de l'importance à l'image de marque, tout en encourageant la consommation de produits tunisiens. Elles sont organisées et utilisent des listes de courses, principalement pour acheter des produits alimentaires de base. Elles disposent d'un budget conséquent de plus de 50 TND pour leurs courses, qu'elles effectuent au moins une fois par mois dans les marchés à proximité. Elles sont des consommatrices de produits biologiques, en particulier des produits d'hygiène, qu'elles consomment moins d'une fois par mois, car ils sont associés au bien-être.
+
+## Apprentissage supervisé: Classification
+
+Suite à la création de la variable cluster, notre jeu de données contient maintenant une variable cible (Segment). On peut maintenant faire appliquer des algorithmes de classification pour prévoir le segment de chaque nouvel individu grace à ces réponses dans le formulaire.
+
+On doit diviser notre jeu de données entre un jeu de données d'apprentissage et un jeu de données de test. La divison sera 80% des individus pour l'apprentissage et 20% pour le test.
+
+```{r}
+set.seed(0)
+i <- sample(1:nrow(data2), 0.8*nrow(data2))
+train <- data2[i,] 
+test <- data2[-i,] 
+```
+
+### Partie 1
+
+Dans cette partie, on va prendre toutes les features pour contruire notre modèle d'arbre de décision.
+
+#### Arbre de décision
+
+Le premier algorithme qu'on va appliquer pour ce problème de classification c'est l'arbre de décision.
+
+Construction du modèle.
+
+```{r}
+tree <- rpart(Segment ~ ., data=train, method="class")
+```
+
+Paramétrage optimale de l'arbre de décision pour avoir un minimum d'erreur.
+
+```{r}
+TC= tree$cptable
+which.min(TC[,4]) 
+cpoptimal=TC[which.min(TC[,4]),1]
+optsplit=TC[which.min(TC[,4]),2]
+Toptimal <- rpart(Segment~., data=train,cp=cpoptimal,control=rpart.control(minsplit = optsplit),method="class")
+```
+
+Graphique de l'arbre de décision optimal.
+
+```{r}
+rpart.plot(Toptimal)
+```
+
+Matrice de confusion.
+
+```{r}
+prev_dt <- predict(tree, test, type="class")
+mc <- ConfusionMatrix(prev_dt, test$Segment)
+mc
+```
+
+Evaluation de la classification.
+
+```{r}
+Accuracy(prev_dt,test$Segment)
+F1_Score(test$Segment,prev_dt)
+Precision(test$Segment,prev_dt)
+Recall(test$Segment,prev_dt)
+```
+
+Selon les métriques ci dessus, le modèle construit avec Decision Tree et moyen pour la classification.
+
+
+### Partie 2
+
+Dans cette partie, on va passer à deux autres algorithmes, mais cette fois ci ces algorithmes nécessite une sélection de variable pour un résultat optimal. On va la sélection avec le test Chi² vue que nos données sont purement catégorielles. Les algorithmes qu'on va utilisé sont la Régression logistique multiclasse et le Naive Bayes
+
+#### Selection des features avec le test de Chi².
+
+Avant de passer à la regression logistique et Naive Bayes, on doit effectuer le test de Chi² sur notre jeu de données pour choisir les variable qu'on va retenir pour la regression logistique en se basant sur la P_value de ce test.
+
+```{r}
+cible <- "Segment"
+chi_squared_test <- apply(data2, 2, function(x) chisq.test(x, data2[[cible]]))
+chi_squared_stat <- sapply(chi_squared_test, function(x) x$statistic)
+chi_squared_pvalue <- sapply(chi_squared_test, function(x) x$p.value)
+chi_squared_res <- data.frame(Variable = names(data2), Chi_squared_statistic = chi_squared_stat, P_value = chi_squared_pvalue)
+chi_squared_res
+```
+
+Maintenant en se basant sur le test et ses résultat, on va retenir que les variables avec un P_value \< 5%.
+
+```{r}
+variables_retenues <- chi_squared_res %>% filter(P_value < 0.05) %>% pull(Variable)
+data_select <- data2 %>% select(all_of(c(variables_retenues, cible)))
+head(data_select)
+```
+
+On constate qu'une seule valeur n'a pas été retenue, c'est la variable 'origine'.
+
+On doit diviser notre nouveau jeu de données entre un jeu de données d'apprentissage et un jeu de données de test. La divison sera 80% des individus pour l'apprentissage et 20% pour le test.
+
+```{r}
+set.seed(0)
+i <- sample(1:nrow(data_select), 0.8*nrow(data_select))
+train_l <- data_select[i,] 
+test_l <- data_select[-i,] 
+```
+
+#### Regression logistique
+
+On passe maintenant au deuxième algorithme de classification, l'algorithme de la regession logistique multinomiale, vu que notre cible contient 4 modalités.
+
+Maintenant on va construire notre modèle de regression logistique.
+
+```{r}
+model_rl <- multinom(Segment ~ ., data = train_l)
+```
+
+Ensuite, on doit créer une matrice de confusion pour les nouvelles classifications.
+
+```{r}
+prev_l <- predict(model_rl, newdata = test_l)
+mc_l <- table(test_l$Segment, prev_l)
+mc_l
+```
+
+Evaluation de la classification avec la regression logistique.
+
+```{r}
+Accuracy(prev_l,test_l$Segment)
+F1_Score(test_l$Segment,prev_l)
+Precision(test_l$Segment,prev_l)
+Recall(test_l$Segment,prev_l)
+```
+
+Selon les métriques ci dessus, le modèle construit avec Multinomial Logistic Regression et le meilleur pour la classification.
+
+#### Naive Bayes
+
+Ici, on va passer au dernier algorithme, Naive Bayes pour notre problème de classification.
+
+Comme on a déjà effectué la selection des variables et la division du jeu de données entre données d'apprentissage et données de test, on va passer directement à la construction du modéle.
+
+```{r}
+model_nb <- naiveBayes(Segment ~ ., data = train_l)
+```
+
+Ensuite, on va créer une nouvelle matrice de confusion pour notre modèle.
+
+```{r}
+prev_nb<- predict(model_nb, newdata = test_l)
+mc_nb <- table(test_l$Segment, prev_nb)
+mc_nb
+```
+
+Evaluation de la classification avec Naive Bayes.
+
+```{r}
+Accuracy(prev_nb,test_l$Segment)
+F1_Score(test_l$Segment,prev_nb)
+Precision(test_l$Segment,prev_nb)
+Recall(test_l$Segment,prev_nb)
+```
+
+Selon les métriques ci dessus, le modèle construit avec Naive Bayes et assez bon pour la classification.
+
+## Etude comparative
+
+### Tableau comparatif
+
+| Modèle                          | Accuracy | F1 score | Precision | Recall |
+|---------------------------------|----------|----------|-----------|--------|
+| Multinomial Logistic Regression | 0.9074   | 0.9183   | 0.9183    | 0.9183 |
+| Naive Bayes                     | 0.8209   | 0.8316   | 0.8076    | 0.8571 |
+| Decision Tree                   | 0.7469   | 0.7191   | 0.8000    | 0.6530 |
+
+Ce tableau nous indique la performance de chaque modèle non seulement grace à l'Accuracy, mais grace à plusieur métrique d'évaluation comme le F1 score, Precision et Recall. Selon ce tableau l'algorithme idéal pour notre cas c'est la Régression Logistique Multi Classes.
+
+### Courbe ROC
+
+```{r}
+roc_nb <- roc(test$Segment, as.numeric(prev_nb))  
+roc_dt <- roc(test$Segment, as.numeric(prev_dt))
+roc_logreg <- roc(test$Segment, as.numeric(prev_l))
+roc_data <- rbind(
+  data.frame(model = "Naive Bayes", sensitivity = roc_nb$sensitivities, specificity = 1 - roc_nb$specificities),
+  data.frame(model = "Decision Tree", sensitivity = roc_dt$sensitivities, specificity = 1 - roc_dt$specificities),
+  data.frame(model = "Logistic Regression", sensitivity = roc_logreg$sensitivities, specificity = 1 - roc_logreg$specificities)
+)
+ggplot(roc_data, aes(x =  specificity, y = sensitivity, color = model)) +
+  geom_line() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  labs(x = "Faux positif", y = "Vrai positif", title = "Courbe ROC") +
+  theme_minimal()
+```
+
+D'après la courbe ROC présenté ci-dessus, on peut confirmer le choix du modèle le plus performant (Régression logistique Multi Classes).
